@@ -65,15 +65,23 @@ type SystemEvidence struct {
 	Warnings       []string `json:"warnings"`
 }
 type Intelligence struct {
-	Country    string `json:"country"`
-	Region     string `json:"region"`
-	Timezone   string `json:"timezone"`
-	ASN        string `json:"asn"`
-	Abuse      *bool  `json:"abuse"`
-	Tor        *bool  `json:"tor"`
-	Proxy      *bool  `json:"proxy"`
-	VPN        *bool  `json:"vpn"`
-	Datacenter *bool  `json:"datacenter"`
+	Country           string   `json:"country"`
+	Region            string   `json:"region"`
+	Timezone          string   `json:"timezone"`
+	ASN               string   `json:"asn"`
+	ASNOrganization   string   `json:"asnOrganization"`
+	ASNType           string   `json:"asnType"`
+	ASNRoute          string   `json:"asnRoute"`
+	ASNAbuseRatio     *float64 `json:"asnAbuseRatio"`
+	CompanyName       string   `json:"companyName"`
+	CompanyType       string   `json:"companyType"`
+	CompanyNetwork    string   `json:"companyNetwork"`
+	CompanyAbuseRatio *float64 `json:"companyAbuseRatio"`
+	Abuse             *bool    `json:"abuse"`
+	Tor               *bool    `json:"tor"`
+	Proxy             *bool    `json:"proxy"`
+	VPN               *bool    `json:"vpn"`
+	Datacenter        *bool    `json:"datacenter"`
 }
 type Exit struct {
 	Path   string        `json:"path"`

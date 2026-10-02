@@ -379,13 +379,16 @@ function reportGuidance(r) {
   const clear = r.findings.filter(f => f.upper === 0);
   const next = [], seen = new Set();
   for (const finding of [...signals, ...unknown]) {
-    const key = ['abuse','tor','proxy','vpn','datacenter'].includes(finding.id) ? 'ip' : ['egress','ipv6','webrtc'].includes(finding.id) ? 'routing' : ['timezone-ip','timezone-system','clock'].includes(finding.id) ? 'time' : finding.id;
+    const key = ['abuse','tor','proxy','vpn','datacenter','network-reputation'].includes(finding.id) ? 'ip' : ['egress','ipv6','webrtc'].includes(finding.id) ? 'routing' : ['timezone-ip','timezone-system','clock'].includes(finding.id) ? 'time' : finding.id;
     if (!seen.has(key)) { seen.add(key); next.push({key, finding}); }
   }
   return {signals, unknown, clear, next:next.slice(0,3)};
 }
 function findingAdvice(f) {
-  if (['abuse','tor','proxy','vpn','datacenter'].includes(f.id)) return f.lower > 0
+  if (f.id === 'network-reputation' || f.id === 'datacenter') return f.lower > 0
+    ? 'Review hosting status and the company-network / ASN-wide abuse proportions alongside IP-level flags. These signals do not reveal the service’s private blocklist; check official access rules or ask service support.'
+    : 'Enable IP intelligence for a network check, then review the validated network scopes and abuse proportions. Missing evidence and the service’s private blocklist remain unknown.';
+  if (['abuse','tor','proxy','vpn'].includes(f.id)) return f.lower > 0
     ? 'Review this provider flag alongside the service’s official rules. A flag alone does not establish misuse or an account restriction.'
     : 'Review your IP intelligence configuration, then explicitly enable it for a network check. Failed lookups or missing provider fields remain unknown.';
   return f.recommendation;
@@ -444,7 +447,27 @@ function renderReport() {
   row('Operating system', `${r.os} / ${r.arch}`); row('Policy', `${r.policy.mode} · ${r.policy.provenance || 'Unknown'} · reviewed ${r.policy.checkedAt || 'never'}`);
   if (r.evidence) {
     const e = r.evidence; row('System timezone', `${e.system.timezone} · UTC offset ${e.system.offsetMinutes ?? 'unknown'} minutes`); row('System locale', e.system.locale); row('Browser timezone', e.browser.timezone); row('Browser languages', e.browser.languages.join(', ')); row('Proxy', e.system.proxy); row('DNS', e.system.dns); row('Default route', e.system.route);
-    (e.exits || []).forEach(x => row(`${x.path} / ${x.family}`, x.ip ? `${x.ip} · ${x.intelligence?.country || 'country unknown'}` : x.error || 'Unavailable'));
+    const flag = value => value === true ? 'Reported' : value === false ? 'Not reported' : 'Unknown';
+    const proportion = value => {
+      if (typeof value !== 'number' || !Number.isFinite(value) || value < 0 || value > 1) return 'Unknown';
+      if (value > 0 && value < 0.000001) return '<0.0001%';
+      return `${Number((value * 100).toFixed(4))}%`;
+    };
+    (e.exits || []).forEach(x => {
+      const label = `${x.path} / ${x.family}`;
+      row(label, x.ip ? `${x.ip} · ${x.intelligence?.country || 'country unknown'}` : x.error || 'Unavailable');
+      if (!x.intelligence) return;
+      const v = x.intelligence;
+      row(`${label} · IP-level abuse flag`, flag(v.abuse));
+      row(`${label} · Hosting / datacenter flag`, flag(v.datacenter));
+      row(`${label} · Company / type`, [v.companyName, v.companyType].filter(Boolean).join(' · '));
+      row(`${label} · Validated company network`, v.companyNetwork);
+      row(`${label} · Company-network abuse proportion`, proportion(v.companyAbuseRatio));
+      row(`${label} · ASN / organization / type`, [v.asn, v.asnOrganization, v.asnType].filter(Boolean).join(' · '));
+      row(`${label} · Validated ASN route containing exit`, v.asnRoute);
+      row(`${label} · ASN-wide abuse proportion (all ASN routes)`, proportion(v.asnAbuseRatio));
+    });
+    row('Service-private blocklist', 'Unknown — IP intelligence does not report the selected service’s private denylist.');
     row('Clock skew', e.clockSkewSeconds === null ? 'Unknown' : `${e.clockSkewSeconds.toFixed(1)} seconds`);
     row('Collection notes', [...(e.warnings || []), ...(e.system.warnings || [])].join(' '));
   }

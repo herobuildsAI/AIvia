@@ -1,19 +1,21 @@
 # Source distribution verification
 
-Verified on 2026-10-02 with Go 1.26.1 and Node.js 22.16.0 on macOS (amd64).
+Verified on 2026-10-03 with Go 1.26.1 and Node.js 22.16.0 on macOS (amd64).
 
 ## Completed checks
 
 - Fresh Go tests with the race detector: `go test -race -count=1 ./...` passed for both packages.
 - Static analysis: `go vet ./...` passed.
 - Browser JavaScript syntax: `node --check internal/app/web/app.js` passed.
-- UI regression tests: `node --test tests/ui.test.cjs` passed all 48 tests.
-- Source compilation passed for macOS, Linux, and Windows, each on amd64 and arm64, with CGO disabled. Build outputs were kept outside this source directory.
-- Browser acceptance on the current build used a disposable data directory: saved a service after switching away from an invalid custom policy URL, added two issue records consecutively, and reloaded with both records preserved. No browser console warnings or errors were observed. The preview shut down cleanly and released its temporary store lock. No existing user data was used.
+- UI regression tests: `node --test tests/ui.test.cjs` passed all 51 tests, with no skipped tests.
+- Linux amd64 and Windows amd64 production builds passed with CGO disabled. Windows amd64 app tests also cross-compiled successfully. Build outputs were kept outside this source directory; compilation does not execute those tests.
+- Isolated browser acceptance used synthetic observations and a disposable store. It verified v1.1 raw company/ASN scopes, known zero versus unknown ratios, and literal rendering of script-looking organization text. An older saved v1.0 report retained its original hosting weight; comparison across scoring versions was refused. Save, export preview, and assistant context preview retained the network-reputation finding while excluding raw IPs, organization names, networks/routes, and ratios. No real provider or model calls were made.
 - Go formatting and diff whitespace checks passed. Focused JSDOM checks covered native form validity, dialog naming, and editor closing.
 
 ## Review corrections
 
+- v1.1 separates IP-level abuse, explicit hosting, and network reputation while retaining the 100-point total. Optional malformed metadata remains unknown without discarding valid country or provider flags. Company networks and ASN routes must contain the observed IP and match its family. Numeric band boundaries, worst-exit combination, missing sources, metadata redaction, and AIvia request branding have regression coverage. Existing v1.0 snapshots keep their stored scores and weights.
+- Windows compatibility tests preserve store/revision checks while applying the POSIX private-mode assertion only where those permissions are exposed. The proxy case-variant test expects Windows' final environment value to win without case sensitivity; malformed active proxy configuration is still rejected. Native Windows rerun is pending.
 - Malformed active proxy environment settings stop non-loopback requests instead of silently falling back to direct connections. Local loopback and valid `NO_PROXY` rules remain supported; error messages hide credentials.
 - System timezone observations read current OS configuration on each scan; unavailable data stays unknown.
 - Public connections reserve timeout budget for remaining validated DNS addresses when an earlier address stalls. Cancellation still stops subsequent attempts.
@@ -33,6 +35,6 @@ The directory was assembled from an explicit file allowlist. Git history, local 
 
 ## Verification limits
 
-Cross-compilation does not establish behavior on real Windows/Linux devices or other CPU architectures. The included GitHub Actions workflow is ready for a repository but was not run on a remote host for this snapshot. Automated network and model checks use local fixtures; they do not verify current provider policy, real account eligibility, paid API access, or every user's installed model/CLI runtime.
+Cross-compilation does not establish behavior on real Windows/Linux devices or other CPU architectures. CI for the initial source snapshot passed on Linux/macOS and failed on Windows because of the two platform assumptions described above. The corrected v1.1 source has not had a native Linux/Windows rerun. Automated network and model checks use local fixtures; they do not verify current provider policy, real account eligibility, paid API access, or every user's installed model/CLI runtime.
 
 Scores are heuristic evidence ranges, not calibrated probabilities of account acceptance. Missing or stale evidence stays unknown. Before opening a public repository, configure the private reporting channel described in `SECURITY.md`.
