@@ -5,6 +5,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -58,6 +59,11 @@ func TestProxyConfigurationNeverSilentlyBecomesDirect(t *testing.T) {
 		local.CloseIdleConnections()
 		return
 	}
+	caseVariantWant := "proxy"
+	if runtime.GOOS == "windows" {
+		// Environment keys are case insensitive; os/exec keeps the last value.
+		caseVariantWant = "error"
+	}
 	cases := []struct {
 		name, want string
 		env        []string
@@ -68,7 +74,7 @@ func TestProxyConfigurationNeverSilentlyBecomesDirect(t *testing.T) {
 		{"invalid-query", "error", []string{"HTTPS_PROXY=http://127.0.0.1:7890?token=fixture"}},
 		{"bare-host", "proxy", []string{"HTTPS_PROXY=127.0.0.1:7890"}},
 		{"lowercase", "proxy", []string{"https_proxy=http://127.0.0.1:7890"}},
-		{"uppercase-precedence", "proxy", []string{"HTTPS_PROXY=http://127.0.0.1:7890", "https_proxy=invalid://"}},
+		{"case-variant-precedence", caseVariantWant, []string{"HTTPS_PROXY=http://127.0.0.1:7890", "https_proxy=invalid://"}},
 		{"no-proxy", "direct", []string{"HTTPS_PROXY=http://127.0.0.1:7890", "NO_PROXY=example.test"}},
 		{"no-proxy-all", "direct", []string{"HTTPS_PROXY=http://127.0.0.1:7890", "NO_PROXY=*"}},
 		{"unrelated-http-setting", "direct", []string{"HTTP_PROXY=http://user:bad%zz@127.0.0.1:7890"}},

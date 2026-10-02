@@ -51,7 +51,7 @@ func TestScorePolicyAndMissingFlags(t *testing.T) {
 	if finding(t, r, "region").Lower != 40 {
 		t.Fatal("unsupported region hidden")
 	}
-	if finding(t, r, "abuse").Upper != 0 || finding(t, r, "vpn").Upper != 2 {
+	if finding(t, r, "abuse").Upper != 0 || finding(t, r, "vpn").Upper != 1 {
 		t.Fatal("false and absent flags confused")
 	}
 	r = Score(e, Policy{Mode: "builtin", Builtin: "claude-web"}, scoreTime.AddDate(0, 0, 31))
@@ -67,7 +67,7 @@ func TestScorePolicyAndMissingFlags(t *testing.T) {
 func TestScoreMissingExitNotErased(t *testing.T) {
 	e := Evidence{Exits: []Exit{{Path: "browser", Family: "ipv4", IP: "8.8.8.8", Intel: &Intelligence{Country: "US", VPN: ptr(false)}}, {Path: "browser", Family: "ipv6", Error: "timeout"}}}
 	r := Score(e, Policy{Mode: "builtin", Builtin: "claude-web"}, scoreTime)
-	if finding(t, r, "vpn").Upper != 2 || finding(t, r, "region").Upper != 40 {
+	if finding(t, r, "vpn").Upper != 1 || finding(t, r, "region").Upper != 40 {
 		t.Fatal("successful exit erased failed probe")
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -89,7 +90,12 @@ func TestIPSettingsStoreRoundTripAndRevision(t *testing.T) {
 	if got.Revision != 1 || got.APIKey != "saved-secret" || got.Endpoint != v.Endpoint {
 		t.Fatal("IP settings did not survive reopening")
 	}
-	if info, err := os.Stat(filepath.Join(dir, "store.json")); err != nil || info.Mode().Perm() != 0600 {
+	info, err := os.Stat(filepath.Join(dir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Windows FileMode exposes the read-only attribute, not POSIX permissions.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0600 {
 		t.Fatal("credentials lack private store permissions")
 	}
 	got.Endpoint = "https://10.0.0.1"

@@ -26,7 +26,8 @@ Example response (illustrative values only):
 {
   "ip":"8.8.8.8",
   "location":{"country_code":"US","state":"California","timezone":"America/Los_Angeles"},
-  "asn":{"asn":15169},
+  "company":{"name":"Example operator","type":"hosting","network":"8.8.8.0 - 8.8.8.255","abuser_score":"0 (Low)"},
+  "asn":{"asn":15169,"org":"Example organization","type":"isp","route":"8.8.8.0/24","abuser_score":"0.02 (High)"},
   "is_abuser":false,
   "is_tor":false,
   "is_proxy":false,
@@ -37,7 +38,17 @@ Example response (illustrative values only):
 
 The returned IP must match the requested public IP. Fields you do not know should be omitted or null; do not synthesize false flags. Errors, malformed responses, timeouts, and missing flags remain unknown. The UI identifies custom evidence as user-configured rather than attributing it to ipapi.is.
 
+Optional `company` and `asn` metadata uses the ipapi.is-compatible fields shown above. Names and types are bounded to 160 bytes and rendered as text. Abuse proportions must be strings containing a finite numeric value from 0 to 1, optionally followed by the provider's parenthesized label. Numeric zero is known zero; absent, null, wrong-type, malformed, or out-of-range values are unknown. The label never changes the score. Invalid optional metadata leaves valid country and explicit flags usable.
+
+Company networks accept canonical IPv4/IPv6 CIDRs or ordered `start - end` ranges; ASN routes accept canonical CIDRs. They must contain the queried address and match its family before being shown or used for network reputation. The company proportion concerns the company network; the ASN proportion concerns all ASN routes, not the one displayed prefix. Only explicit `is_datacenter` scores hosting; a name or type alone cannot imply it. A provider IP-level abuse flag is distinct from network reputation and from any service's private denylist. IP intelligence does not expose that private denylist or confirm registration eligibility. See [scoring](scoring.md) for the project heuristic bands.
+
+Raw organization, network/prefix, and ratio details remain in memory for the current check. Saved/redacted reports, exports, and model context contain generic finding explanations rather than this metadata.
+
 Custom lookups are declined when a configured proxy would prevent destination enforcement. The app does not silently use a direct route instead. Normal loopback bypass under standard proxy environment behavior remains supported.
+
+## Hosting example: DMIT
+
+[DMIT](https://www.dmit.io/) is a hosting example; [ARIN AS906](https://whois.arin.net/rest/asn/AS906), [ARIN AS54574](https://whois.arin.net/rest/asn/AS54574), [APNIC AS132110](https://rdap.apnic.net/autnum/132110), and [APNIC AS137929](https://rdap.apnic.net/autnum/137929) provide registry attribution only. [DMIT's transit service](https://www.dmit.io/pages/ip-transit) supports customer-owned IPs/ASNs and BYOIP, so a fixed provider-to-ASN mapping cannot establish every customer's actual exit or ownership. These sources do not establish an AI-service ban; no service-private blocklist was verified. AIvia does not hardcode DMIT, these ASNs, or their ranges into scoring. Evaluate the actual exit's validated provider evidence and current official service rules.
 
 ## Key and consent handling
 

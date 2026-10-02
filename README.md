@@ -53,7 +53,7 @@ Claude web/API starter policies include a source and review date. Policies older
 
 ## Data and recovery
 
-AIvia was previously named AI VPN Tools. The existing `aivpn-tools` data directory and `AIVPN_*` environment variables are retained for compatibility.
+AIvia is the display name. The existing `aivpn-tools` data directory and `AIVPN_*` environment variables are retained for compatibility.
 
 The startup message prints the data directory. Defaults follow Go's `os.UserConfigDir`: macOS Application Support, Windows AppData, and Linux XDG configuration directories.
 

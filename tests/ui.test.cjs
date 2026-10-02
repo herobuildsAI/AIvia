@@ -527,3 +527,36 @@ test('research refuses a model silently changed after its connection label was d
  assert.equal(requests.length,1); assert.equal(hooks.state.settingsDirty,true);
  assert.equal(nodes.get('cloud-confirmed').checked,false); assert.match(nodes.get('research-status').textContent,/settings changed/i);
 });
+
+test('network reputation shares IP guidance and keeps hosting separate from a private service blocklist', () => {
+ const {hooks,nodes,requests}=harness(), r=diagnosticFixture();
+ r.findings=[{id:'network-reputation',title:'Network reputation',weight:5,lower:3,upper:5,state:'unknown',explanation:'Network proportions are heuristics.',recommendation:'Review network evidence',source:'Fixture'},{id:'datacenter',title:'Reported hosting network',weight:4,lower:4,upper:4,state:'observed',explanation:'Hosting is weak evidence.',recommendation:'Review hosting evidence',source:'Fixture'}];
+ const guidance=hooks.reportGuidance(r); assert.equal(guidance.next.length,1); assert.equal(guidance.next[0].key,'ip');
+ mountReport(hooks,r); hooks.renderReport();
+ const text=flattened(nodes.get('report-output')).map(n=>n.textContent).join('\n');
+ assert.match(text,/hosting/i); assert.match(text,/private.*blocklist/i); assert.match(text,/abuse proportions/i); assert.equal(requests.length,0);
+});
+test('raw network metadata renders as text with separate scopes and leaves old snapshots intact', () => {
+ const {hooks,nodes,requests}=harness(), r=diagnosticFixture(), original=JSON.stringify(r);
+ const legacy={...r,id:'old'}; mountReport(hooks,legacy); hooks.renderReport();
+ let text=flattened(nodes.get('report-output')).map(n=>n.textContent).join('\n'); assert.match(text,/Score v1\.0/); assert.match(text,/0–15 \/ 15/);
+ assert.match(hooks.compareReports(legacy,{...r,id:'new',scoreVersion:'1.1'}).error,/different scoring versions/);
+ r.evidence={system:{timezone:'UTC',offsetMinutes:0,warnings:[]},browser:{languages:[]},clockSkewSeconds:null,exits:[{path:'browser',family:'ipv4',ip:'8.8.8.8',intelligence:{country:'US',abuse:false,datacenter:true,asn:'15169',asnOrganization:'<img src=x onerror=alert(1)>',asnType:'isp',asnRoute:'8.8.8.0/24',asnAbuseRatio:0.1,companyName:'<script>company</script>',companyType:'hosting',companyNetwork:'8.8.8.0 - 8.8.8.255',companyAbuseRatio:0}}]};
+ mountReport(hooks,r); hooks.renderReport();
+ const rendered=flattened(nodes.get('report-output')); text=rendered.map(n=>n.textContent).join('\n');
+ for(const expected of ['<img src=x onerror=alert(1)>','<script>company</script>','8.8.8.0/24','8.8.8.0 - 8.8.8.255','10%','0%']) assert.ok(text.includes(expected),expected);
+ assert.match(text,/ASN-wide/); assert.match(text,/IP-level abuse/); assert.match(text,/Service-private blocklist/);
+ assert.equal(rendered.some(n=>n.innerHTML),false); assert.equal(JSON.stringify(legacy),original.replace('report-a','old')); assert.equal(requests.length,0);
+});
+test('raw abuse proportions distinguish tiny positive evidence from exact zero and unknown', () => {
+ for (const [value,expected] of [[0,'0%'],[1e-9,'<0.0001%'],[0.000001,'0.0001%'],[null,'Unknown']]) {
+  const {hooks,nodes}=harness(), r=diagnosticFixture();
+  r.evidence={system:{warnings:[]},browser:{languages:[]},clockSkewSeconds:null,exits:[{path:'browser',family:'ipv4',ip:'8.8.8.8',intelligence:{companyAbuseRatio:value,asnAbuseRatio:value}}]};
+  mountReport(hooks,r); hooks.renderReport();
+  const rendered=flattened(nodes.get('report-output'));
+  for(const label of ['Company-network abuse proportion','ASN-wide abuse proportion (all ASN routes)']) {
+   const index=rendered.findIndex(n=>n.textContent===`browser / ipv4 · ${label}`);
+   assert.notEqual(index,-1); assert.equal(rendered[index+1].textContent,expected);
+  }
+ }
+});

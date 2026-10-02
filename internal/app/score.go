@@ -82,11 +82,11 @@ func Score(e Evidence, p Policy, now time.Time) Report {
 		weight    float64
 		get       func(*Intelligence) *bool
 	}{
-		{"abuse", "Reported abuse association", 15, func(v *Intelligence) *bool { return v.Abuse }},
-		{"tor", "Reported Tor exit", 4, func(v *Intelligence) *bool { return v.Tor }},
-		{"proxy", "Reported proxy exit", 3, func(v *Intelligence) *bool { return v.Proxy }},
-		{"vpn", "Reported VPN exit", 2, func(v *Intelligence) *bool { return v.VPN }},
-		{"datacenter", "Reported hosting network", 1, func(v *Intelligence) *bool { return v.Datacenter }},
+		{"abuse", "Reported IP-level abuse", 10, func(v *Intelligence) *bool { return v.Abuse }},
+		{"tor", "Reported Tor exit", 3, func(v *Intelligence) *bool { return v.Tor }},
+		{"proxy", "Reported proxy exit", 2, func(v *Intelligence) *bool { return v.Proxy }},
+		{"vpn", "Reported VPN exit", 1, func(v *Intelligence) *bool { return v.VPN }},
+		{"datacenter", "Reported hosting network", 4, func(v *Intelligence) *bool { return v.Datacenter }},
 	}
 	ipSource := e.IPSource
 	if ipSource == "" {
@@ -103,9 +103,34 @@ func Score(e Evidence, p Policy, now time.Time) Report {
 			}
 			return 0, 0
 		})
+		if v.id == "abuse" {
+			f.Explanation = "An explicit IP-level abuse flag reflects provider feeds or blocklists. It does not reveal the selected service's private blocklist, which remains unknown."
+			f.Recommendation = "Review the IP-level provider flag and the service's official access rules; ask service support about account-specific restrictions."
+		}
+		if v.id == "datacenter" {
+			f.Explanation = "An explicit provider flag identifies hosting or datacenter status when reported. Hosting alone is weak evidence and does not confirm a service block or misuse."
+			f.Recommendation = "Review hosting status alongside IP-level abuse and network abuse proportions; the service's private blocklist remains unknown."
+		}
 		findings = append(findings, bounds(f, l, u))
 	}
-	f := rule("egress", "Browser and agent egress", 10, "Different exits can indicate split routing or multiple egress nodes; they do not alone prove a leak.", "Check whether browser and command-line traffic use the intended VPN or proxy.", "Observed HTTPS requests")
+	f := rule("network-reputation", "Reported network reputation", 5, "Company-network and ASN-wide abuse proportions describe surrounding networks, not this IP's behavior or a service's private blocklist. Numeric bands are AIvia heuristics, not vendor labels or ban probabilities.", "Review the scoped network evidence and IP-level flags together. Missing proportions remain unknown; consult official service rules or support for service-specific restrictions.", ipSource)
+	lo, hi = maxRanges(all, func(x Exit) (float64, float64) {
+		if x.IP == "" || x.Intel == nil {
+			return 0, 5
+		}
+		companyRatio, asnRatio := x.Intel.CompanyAbuseRatio, x.Intel.ASNAbuseRatio
+		if matchingNetwork(x.Intel.CompanyNetwork, x.IP, true) == "" {
+			companyRatio = nil
+		}
+		if matchingNetwork(x.Intel.ASNRoute, x.IP, false) == "" {
+			asnRatio = nil
+		}
+		companyLo, companyHi := reputationRange(companyRatio)
+		asnLo, asnHi := reputationRange(asnRatio)
+		return math.Max(companyLo, asnLo), math.Max(companyHi, asnHi)
+	})
+	findings = append(findings, bounds(f, lo, hi))
+	f = rule("egress", "Browser and agent egress", 10, "Different exits can indicate split routing or multiple egress nodes; they do not alone prove a leak.", "Check whether browser and command-line traffic use the intended VPN or proxy.", "Observed HTTPS requests")
 	lo, hi = maxRanges(browser, func(b Exit) (float64, float64) {
 		a, ok := findExit(agent, b.Family)
 		if !ok || b.IP == "" || a.IP == "" {
@@ -184,8 +209,22 @@ func Score(e Evidence, p Policy, now time.Time) Report {
 	if band(lower) == band(upper) {
 		grade = band(lower)
 	}
-	r := RedactedReport{ID: newID(), CreatedAt: now.UTC().Format(time.RFC3339), ScoreVersion: "1.0", Policy: p, Lower: lower, Upper: upper, Coverage: resolved, Grade: grade, Findings: findings, OS: e.System.OS, Arch: e.System.Arch, Timezone: e.System.Timezone, Target: e.Target}
+	r := RedactedReport{ID: newID(), CreatedAt: now.UTC().Format(time.RFC3339), ScoreVersion: "1.1", Policy: p, Lower: lower, Upper: upper, Coverage: resolved, Grade: grade, Findings: findings, OS: e.System.OS, Arch: e.System.Arch, Timezone: e.System.Timezone, Target: e.Target}
 	return Report{RedactedReport: r, Evidence: e}
+}
+func reputationRange(ratio *float64) (float64, float64) {
+	if ratio == nil || math.IsNaN(*ratio) || math.IsInf(*ratio, 0) || *ratio < 0 || *ratio > 1 {
+		return 0, 5
+	}
+	points := 0.0
+	if *ratio >= 0.10 {
+		points = 5
+	} else if *ratio >= 0.01 {
+		points = 3
+	} else if *ratio > 0 {
+		points = 1
+	}
+	return points, points
 }
 func findExit(exits []Exit, family string) (Exit, bool) {
 	for _, x := range exits {

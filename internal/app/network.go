@@ -14,6 +14,7 @@ import (
 	"net/netip"
 	"net/url"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -64,7 +65,7 @@ func fetch(ctx context.Context, client *http.Client, method, endpoint string, bo
 	if err != nil {
 		return nil, nil, errors.New("Invalid request destination.")
 	}
-	req.Header.Set("User-Agent", "AI-VPN-Tools/0.1")
+	req.Header.Set("User-Agent", "AIvia/0.1")
 	req.Header.Set("Cache-Control", "no-cache")
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -111,9 +112,8 @@ func parseIntelligence(b []byte, ip string) (*Intelligence, error) {
 			Region   string `json:"state"`
 			Timezone string `json:"timezone"`
 		} `json:"location"`
-		ASN struct {
-			ASN int `json:"asn"`
-		} `json:"asn"`
+		ASN     json.RawMessage `json:"asn"`
+		Company json.RawMessage `json:"company"`
 	}
 	if err := json.Unmarshal(b, &d); err != nil || canonicalIP(d.IP) == "" || canonicalIP(d.IP) != canonicalIP(ip) || d.Error != "" {
 		return nil, errors.New("IP provider returned invalid or mismatched data.")
@@ -124,7 +124,77 @@ func parseIntelligence(b []byte, ip string) (*Intelligence, error) {
 	if len(d.Location.Region) > 160 || len(d.Location.Timezone) > 160 {
 		return nil, errors.New("IP provider returned oversized fields.")
 	}
-	return &Intelligence{Country: d.Location.Country, Region: d.Location.Region, Timezone: d.Location.Timezone, ASN: itoa(d.ASN.ASN), Abuse: d.Abuse, Tor: d.Tor, Proxy: d.Proxy, VPN: d.VPN, Datacenter: d.Datacenter}, nil
+	v := &Intelligence{Country: d.Location.Country, Region: d.Location.Region, Timezone: d.Location.Timezone, Abuse: d.Abuse, Tor: d.Tor, Proxy: d.Proxy, VPN: d.VPN, Datacenter: d.Datacenter}
+	// Optional network metadata cannot invalidate otherwise usable country/flag evidence.
+	var asn, company map[string]json.RawMessage
+	_ = json.Unmarshal(d.ASN, &asn)
+	_ = json.Unmarshal(d.Company, &company)
+	var number uint32
+	if json.Unmarshal(asn["asn"], &number) == nil && number > 0 {
+		v.ASN = strconv.FormatUint(uint64(number), 10)
+	}
+	v.ASNOrganization, v.ASNType = metadataText(asn["org"]), metadataText(asn["type"])
+	v.CompanyName, v.CompanyType = metadataText(company["name"]), metadataText(company["type"])
+	v.ASNRoute = matchingNetwork(metadataText(asn["route"]), ip, false)
+	v.CompanyNetwork = matchingNetwork(metadataText(company["network"]), ip, true)
+	if v.ASNRoute != "" {
+		v.ASNAbuseRatio = abuseRatio(asn["abuser_score"])
+	}
+	if v.CompanyNetwork != "" {
+		v.CompanyAbuseRatio = abuseRatio(company["abuser_score"])
+	}
+	return v, nil
+}
+func metadataText(raw json.RawMessage) string {
+	var value string
+	if json.Unmarshal(raw, &value) != nil || len(value) > 160 {
+		return ""
+	}
+	return strings.TrimSpace(value)
+}
+func abuseRatio(raw json.RawMessage) *float64 {
+	value := metadataText(raw)
+	// ipapi.is appends a descriptive label. Only its numeric proportion is evidence.
+	if start := strings.Index(value, " ("); start >= 0 {
+		if !strings.HasSuffix(value, ")") {
+			return nil
+		}
+		value = value[:start]
+	}
+	ratio, err := strconv.ParseFloat(value, 64)
+	if err != nil || math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 || ratio > 1 {
+		return nil
+	}
+	return &ratio
+}
+func matchingNetwork(raw, ip string, allowRange bool) string {
+	address, err := netip.ParseAddr(canonicalIP(ip))
+	if err != nil {
+		return ""
+	}
+	if prefix, err := netip.ParsePrefix(raw); err == nil {
+		if prefix != prefix.Masked() || prefix.Addr().Is4() != address.Is4() || !prefix.Contains(address) {
+			return ""
+		}
+		return prefix.String()
+	}
+	if !allowRange {
+		return ""
+	}
+	start, end, ok := strings.Cut(raw, " - ")
+	if !ok {
+		return ""
+	}
+	first, errFirst := netip.ParseAddr(strings.TrimSpace(start))
+	last, errLast := netip.ParseAddr(strings.TrimSpace(end))
+	if errFirst != nil || errLast != nil || first.Zone() != "" || last.Zone() != "" {
+		return ""
+	}
+	first, last = first.Unmap(), last.Unmap()
+	if first.Is4() != address.Is4() || last.Is4() != address.Is4() || first.Compare(last) > 0 || first.Compare(address) > 0 || last.Compare(address) < 0 {
+		return ""
+	}
+	return first.String() + " - " + last.String()
 }
 func CollectNetwork(ctx context.Context, in RunInput, opts Options) Evidence {
 	e := Evidence{Browser: in.Browser, System: CollectSystem(ctx), Network: in.Network, WebRTCChecked: in.WebRTC, Exits: []Exit{}, Warnings: []string{}, Target: Probe{State: "unknown", Summary: "Service reachability was not checked."}}
