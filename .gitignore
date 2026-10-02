@@ -1,0 +1,41 @@
+# Local binaries and build output
+/aivia
+/aivia.exe
+/aivpn.tools
+/aivpn.tools.exe
+/bin/
+/dist/
+*.test
+*.test.exe
+*.out
+
+# Private runtime data and credentials
+/data/
+store.json*
+store.lock
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.mobileprovision
+*.provisionprofile
+
+# Local development state
+.DS_Store
+._*
+.idea/
+.vscode/
+.codex/
+.claude/
+.agents/
+.superpowers/
+__pycache__/
+*.log
+*.xcodeproj/
+*.xcworkspace/
+xcuserdata/
+*.xcuserstate
+DerivedData/
+*.xcarchive/

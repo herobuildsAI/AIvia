@@ -1,0 +1,10 @@
+{
+  "format": "aivia-service-template",
+  "version": 1,
+  "name": "Example service",
+  "kind": "website",
+  "origin": "https://example.com",
+  "policy": {
+    "mode": "unknown"
+  }
+}
