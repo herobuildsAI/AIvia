@@ -119,12 +119,14 @@ func (c *ModelClient) chatCLI(ctx context.Context, model string, messages []Mess
 	if !cliModel.MatchString(model) {
 		return "", errors.New("Use a CLI model name without paths, whitespace, or command arguments.")
 	}
+	instructions := assistantInstructions
 	history := make([]Message, 0, len(messages))
 	for i, message := range messages {
 		if message.Role == "system" {
-			if i != 0 || message.Content != assistantInstructions {
+			if i != 0 || (message.Content != assistantInstructions && message.Content != careerInstructions) {
 				return "", errors.New("CLI system instructions cannot be overridden.")
 			}
+			instructions = message.Content
 			continue
 		}
 		history = append(history, message)
@@ -148,7 +150,7 @@ func (c *ModelClient) chatCLI(ctx context.Context, model string, messages []Mess
 	// --safe-mode preserves the CLI's own login, unlike --bare. These switches
 	// remove model tools and user customizations; managed hooks remain a stated
 	// trust boundary. See code.claude.com/docs/en/cli-reference and /en/hooks.
-	args := []string{"-p", "--output-format", "json", "--safe-mode", "--restricted", "--tools", "", "--disallowedTools", "*", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--disable-slash-commands", "--settings", `{"disableAllHooks":true,"disableClaudeAiConnectors":true}`, "--setting-sources", "", "--no-session-persistence", "--no-chrome", "--permission-mode", "dontAsk", "--system-prompt", assistantInstructions}
+	args := []string{"-p", "--output-format", "json", "--safe-mode", "--restricted", "--tools", "", "--disallowedTools", "*", "--strict-mcp-config", "--mcp-config", `{"mcpServers":{}}`, "--disable-slash-commands", "--settings", `{"disableAllHooks":true,"disableClaudeAiConnectors":true}`, "--setting-sources", "", "--no-session-persistence", "--no-chrome", "--permission-mode", "dontAsk", "--system-prompt", instructions}
 	if model != "default" {
 		args = append(args, "--model", model)
 	}

@@ -30,3 +30,9 @@ Ollama and compatible runtimes are separately installed software. Model weights 
 Claude Code and Codex executables, account credentials, and model weights are not bundled or redistributed by this project. The repository's MIT license covers its adapter code, not those products or their services. Users install and authenticate official tools separately. Their applicable software licenses, service terms, administrator policies, and account usage limits remain in force. No subscription credentials are extracted, copied, or repurposed as a provider API.
 
 The compatible IP endpoint option does not supply a database license or redistribution rights. Users supply their own service and authorized data source.
+
+## Career jobs, news, and optional usage data
+
+Greenhouse, Ashby, and Lever names identify compatible public recruiting adapters only; no affiliation is implied. Job postings, company pages, RSS/Atom items, runtime excerpts, and pasted third-party text are not bundled or relicensed as MIT. Their publishers' copyright, access terms, and source attribution apply separately. Company association and source selection are user-entered, not independently verified. Generated/user-edited advice does not establish publisher authorship or hiring eligibility. Review the source's terms before sharing its content.
+
+The optional [OpenRouter daily dataset](https://openrouter.ai/docs/cookbook/administration/data-api) is fetched with the user's own key and is licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). The UI attributes **Source: OpenRouter (openrouter.ai/rankings), as of the displayed dataset timestamp. Licensed under CC BY 4.0.** Preserve attribution, link to the license, and identify changes when sharing dataset-derived material. The dataset is not bundled, its license is separate from MIT, and its measured traffic does not establish employer rankings or global market share.

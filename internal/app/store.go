@@ -1,6 +1,7 @@
 package app
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -57,7 +58,7 @@ func OpenStore(dir string) (*Store, error) {
 		_ = os.Remove(filepath.Join(dir, "store.lock"))
 		return nil, errors.New("Could not write the data directory lock.")
 	}
-	s := &Store{dir: dir, state: State{Version: 1, Profiles: []Profile{}, Reports: []RedactedReport{}, Settings: ModelSettings{Provider: "ollama", Endpoint: "http://127.0.0.1:11434"}}}
+	s := &Store{dir: dir, state: State{Version: 2, Career: newCareerState(), Profiles: []Profile{}, Reports: []RedactedReport{}, Settings: ModelSettings{Provider: "ollama", Endpoint: "http://127.0.0.1:11434"}}}
 	success := false
 	defer func() {
 		if !success {
@@ -70,9 +71,9 @@ func OpenStore(dir string) (*Store, error) {
 	}
 	f, err := os.Open(path)
 	if err == nil {
-		defer f.Close()
 		b, e := io.ReadAll(io.LimitReader(f, maxStoreSize+1))
-		if e != nil || len(b) > maxStoreSize {
+		closeErr := f.Close()
+		if e != nil || closeErr != nil || len(b) > maxStoreSize || !utf8.Valid(b) {
 			return nil, errors.New("Data store cannot be read or exceeds 16 MiB; original preserved.")
 		}
 		s.state = State{} // Existing files must supply their own schema and collections.
@@ -84,17 +85,86 @@ func OpenStore(dir string) (*Store, error) {
 		if e = dec.Decode(new(any)); e != io.EOF {
 			return nil, errors.New("Data store contains trailing data; original preserved.")
 		}
+		var fields map[string]json.RawMessage
+		if e = json.Unmarshal(b, &fields); e != nil {
+			return nil, e
+		}
+		if s.state.Version == 1 {
+			for key := range fields {
+				if strings.EqualFold(key, "career") {
+					return nil, errors.New("Legacy store must not contain a career field; original preserved. See recovery instructions.")
+				}
+			}
+		}
 		if e = validateState(s.state); e != nil {
 			return nil, fmt.Errorf("Data store rejected; original preserved: %w", e)
 		}
+		if s.state.Version == 1 {
+			if e = preserveLegacyBackup(path+".v1.bak", b); e != nil {
+				return nil, e
+			}
+			next := cloneState(s.state)
+			next.Version, next.Career = 2, newCareerState()
+			if e = s.persist(next); e != nil {
+				return nil, fmt.Errorf("Migration failed; original and legacy backup preserved. See recovery instructions: %w", e)
+			}
+		}
 	} else if !os.IsNotExist(err) {
 		return nil, err
-	} else if _, e := os.Stat(filepath.Join(dir, "store.json.bak")); e == nil {
-		return nil, errors.New("Store missing but backup exists; restore store.json.bak before starting.")
+	} else {
+		for _, name := range []string{"store.json.bak", "store.json.v1.bak"} {
+			if _, e := os.Lstat(filepath.Join(dir, name)); e == nil {
+				return nil, errors.New("Store missing but backup exists; restore the recovery backup before starting.")
+			} else if !os.IsNotExist(e) {
+				return nil, e
+			}
+		}
 	}
 	success = true
 	return s, nil
 }
+
+// preserveLegacyBackup never overwrites the dedicated migration recovery file.
+func preserveLegacyBackup(path string, original []byte) error {
+	recovery := errors.New("Legacy recovery backup is unsafe or differs from the original; all files preserved. Inspect store.json.v1.bak before retrying migration.")
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
+	if err != nil {
+		if !os.IsExist(err) {
+			return fmt.Errorf("Could not create legacy recovery backup; original preserved: %w", err)
+		}
+		info, e := os.Lstat(path)
+		if e != nil || !info.Mode().IsRegular() {
+			return recovery
+		}
+		existing, e := os.Open(path)
+		if e != nil {
+			return recovery
+		}
+		st, e := existing.Stat()
+		if e != nil || !st.Mode().IsRegular() || !os.SameFile(info, st) {
+			existing.Close()
+			return recovery
+		}
+		b, readErr := io.ReadAll(io.LimitReader(existing, maxStoreSize+1))
+		closeErr := existing.Close()
+		if readErr != nil || closeErr != nil || !bytes.Equal(b, original) {
+			return recovery
+		}
+		return nil
+	}
+	if _, err = f.Write(original); err == nil {
+		err = f.Sync()
+	}
+	closeErr := f.Close()
+	if err == nil {
+		err = closeErr
+	}
+	if err != nil {
+		return fmt.Errorf("Could not sync legacy recovery backup; original preserved. Inspect store.json.v1.bak before retrying: %w", err)
+	}
+	return nil
+}
+
 func (s *Store) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -211,8 +281,13 @@ func validatePolicy(p Policy) error {
 	return nil
 }
 func validateState(st State) error {
-	if st.Version != 1 || st.Profiles == nil || st.Reports == nil {
+	if (st.Version != 1 && st.Version != 2) || st.Profiles == nil || st.Reports == nil || (st.Version == 1 && st.Career != nil) || (st.Version == 2 && st.Career == nil) {
 		return errors.New("Unsupported schema version.")
+	}
+	if st.Career != nil {
+		if err := validateCareer(*st.Career); err != nil {
+			return err
+		}
 	}
 	if _, err := NormalizeIPSettings(st.IPSettings); err != nil {
 		return err

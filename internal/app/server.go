@@ -28,13 +28,15 @@ type conversation struct {
 	Created                          time.Time
 }
 type Server struct {
-	store                           *Store
-	opts                            Options
-	token                           string
-	mu                              sync.Mutex
-	current                         map[string]Report
-	conversations                   map[string]*conversation
-	runGate, chatGate, researchGate chan struct{}
+	store                                       *Store
+	opts                                        Options
+	token                                       string
+	mu                                          sync.Mutex
+	current                                     map[string]Report
+	conversations                               map[string]*conversation
+	runGate, chatGate, researchGate, careerGate chan struct{}
+	// Optional per-server fixture transport, applied after the real route factory.
+	careerTransport http.RoundTripper
 }
 
 func NewServer(store *Store, opts Options) (*Server, error) {
@@ -51,7 +53,7 @@ func NewServer(store *Store, opts Options) (*Server, error) {
 	if _, err := networkClient(opts); err != nil {
 		return nil, err
 	}
-	return &Server{store: store, opts: opts, token: newID() + newID(), current: map[string]Report{}, conversations: map[string]*conversation{}, runGate: make(chan struct{}, 1), chatGate: make(chan struct{}, 1), researchGate: make(chan struct{}, 1)}, nil
+	return &Server{store: store, opts: opts, token: newID() + newID(), current: map[string]Report{}, conversations: map[string]*conversation{}, runGate: make(chan struct{}, 1), chatGate: make(chan struct{}, 1), researchGate: make(chan struct{}, 1), careerGate: make(chan struct{}, 1)}, nil
 }
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -85,11 +87,13 @@ func readJSON(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
+	s.registerCareerRoutes(mux)
 	mux.HandleFunc("GET /api/session", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"token": s.token, "ipKeyConfigured": s.ipSettingsView(s.store.Snapshot().IPSettings)["keyConfigured"], "stun": s.opts.STUN, "transport": "Agent requests use an explicit proxy or HTTP proxy environment settings; otherwise the default route. OS/PAC settings are not automatically applied."})
 	})
 	mux.HandleFunc("GET /api/state", func(w http.ResponseWriter, r *http.Request) {
 		st := s.store.Snapshot()
+		st.Career = nil
 		st.IPSettings.APIKey = ""
 		writeJSON(w, 200, st)
 	})
@@ -214,7 +218,7 @@ func (s *Server) Handler() http.Handler {
 		if name == "/" {
 			name = "/index.html"
 		}
-		if name != "/index.html" && name != "/app.js" && name != "/style.css" {
+		if name != "/index.html" && name != "/app.js" && name != "/career.js" && name != "/style.css" {
 			http.NotFound(w, r)
 			return
 		}
