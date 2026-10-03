@@ -13,17 +13,18 @@ function harness() {
   for (const id of ['cloud-confirmed','cli-path','ip-api-key','ip-provider','assistant-mode','triage-stage','triage-error']) if (!nodes.has(id)) nodes.set(id,node());
   const navigator = {languages:["en-US"], clipboard:{writeText:async text => copied.push(text)}};
   const context = createContext({
-    AbortController, structuredClone, setTimeout, clearTimeout, setInterval, clearInterval, navigator,
+    AbortController, URL, Date, Set, Map, structuredClone, setTimeout, clearTimeout, setInterval, clearInterval, navigator,
     window:{addEventListener(){}}, location:{hash:'#diagnostics'}, history:{replaceState(){}}, Option: function(text,value){this.text=text;this.value=value;},
-    document: {createElement:node, createTextNode:text=>({textContent:text}), querySelectorAll:()=>[], getElementById(id) { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); }},
+    document: {activeElement:node(), createElement:node, createTextNode:text=>({textContent:text}), querySelectorAll:()=>[], getElementById(id) { if (!nodes.has(id)) nodes.set(id, node()); return nodes.get(id); }},
     fetch(url, options) { return new Promise((resolve,reject) => requests.push({url, options, reject, resolve: data => resolve({ok:true,json:async()=>data})})); },
   });
+  runInContext(readFileSync('internal/app/web/career.js','utf8'),context);
   const source = readFileSync('internal/app/web/app.js', 'utf8').replace(/^perform\(init\);\s*$/m, '');
-  runInContext(source + '\nglobalThis.hooks = {state, sendChat, resetChat, renderReport, reportGuidance:typeof reportGuidance === "function" ? reportGuidance : null, openResearch:typeof openResearch === "function" ? openResearch : null, runResearch:typeof runResearch === "function" ? runResearch : null, cancelResearch:typeof cancelResearch === "function" ? cancelResearch : null, compareReports:typeof compareReports === "function" ? compareReports : null, updateExport, runChecks, cancelRun, bindEvents, saveSettings, previewContext, copyContext, saveIPSettings, renderSelectors, copyExport:typeof copyExport === "function" ? copyExport : null, setProfileExport(){exportKind="profile";}};', context);
+  runInContext(source + '\nglobalThis.hooks = {state, init, showView, sendChat, resetChat, renderReport, reportGuidance:typeof reportGuidance === "function" ? reportGuidance : null, openResearch:typeof openResearch === "function" ? openResearch : null, runResearch:typeof runResearch === "function" ? runResearch : null, cancelResearch:typeof cancelResearch === "function" ? cancelResearch : null, compareReports:typeof compareReports === "function" ? compareReports : null, updateExport, runChecks, cancelRun, bindEvents, saveSettings, previewContext, copyContext, saveIPSettings, renderSelectors, copyExport:typeof copyExport === "function" ? copyExport : null, setProfileExport(){exportKind="profile";}};', context);
   context.hooks.state.selected = 'profile-a'; context.hooks.setProfileExport();
   runInContext('Object.assign(hooks,{editProfile,saveProfile,editIssue,saveIssue,updatePolicyForm})',context);
   runInContext('Object.assign(hooks,{previewExport,openTemplateImport:typeof openTemplateImport === "function" ? openTemplateImport : null,previewTemplate:typeof previewTemplate === "function" ? previewTemplate : null,cancelTemplateImport:typeof cancelTemplateImport === "function" ? cancelTemplateImport : null})',context);
-  return {hooks:context.hooks, nodes, requests, copied, navigator};
+  return {hooks:context.hooks, career:context.window.AIviaCareer, context, nodes, requests, copied, navigator};
 }
 
 function diagnosticFixture() {
@@ -559,4 +560,22 @@ test('raw abuse proportions distinguish tiny positive evidence from exact zero a
    assert.notEqual(index,-1); assert.equal(rendered[index+1].textContent,expected);
   }
  }
+});
+
+
+test('Career bootstrap waits for session and local settings before entering an initial career hash', async () => {
+  const h=harness(); h.context.location.hash='#career';const p=h.hooks.init();
+  assert.deepEqual(h.requests.map(r=>r.url),['/api/session']);
+  h.requests[0].resolve({token:'fixture-session',transport:'Local'});await new Promise(setImmediate);
+  assert.equal(h.requests.some(r=>r.url==='/api/career'),false);
+  await finishEditorRefresh(h.requests,[]);await new Promise(setImmediate);
+  const career=h.requests.find(r=>r.url==='/api/career');assert.ok(career);assert.equal(career.options.method,'GET');assert.equal(career.options.headers['X-Session-Token'],'fixture-session');
+  career.resolve({revision:1,companies:[],student:{},jobs:[],updates:[],usage:{rows:[]},advice:[],keyConfigured:false});await p;
+  assert.equal(h.nodes.get('career-view').hidden,false);h.hooks.showView('services');
+});
+
+test('assistant form edits and consent invalidate the Career preview through integration', async () => {
+  const h=harness();let changes=0;h.career.settingsChanged=()=>changes++;h.hooks.bindEvents();
+  h.nodes.get('model-id').oninput();h.nodes.get('local-confirmed').onchange();h.nodes.get('cloud-confirmed').onchange();
+  assert.equal(changes,3);
 });

@@ -41,6 +41,7 @@ type ModelSettings struct {
 	CloudConfirmed bool   `json:"cloudConfirmed,omitempty"`
 }
 type State struct {
+	Career     *CareerState     `json:"career,omitempty"`
 	Version    int              `json:"version"`
 	Profiles   []Profile        `json:"profiles"`
 	Reports    []RedactedReport `json:"reports"`

@@ -2,8 +2,10 @@ package app
 
 import (
 	"encoding/json"
+	"mime"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -330,6 +332,30 @@ func TestConversationContextValidation(t *testing.T) {
 	} {
 		if w := apiTest(s, "POST", "/api/context", body); w.Code != 400 {
 			t.Fatalf("invalid context accepted: %s", body[:min(len(body), 80)])
+		}
+	}
+}
+
+func TestServerEntryScriptsAreServed(t *testing.T) {
+	s, _ := testServer(t)
+	page := apiTest(s, "GET", "/", "")
+	if page.Code != http.StatusOK {
+		t.Fatalf("entry page: status %d", page.Code)
+	}
+	scripts := regexp.MustCompile(`<script[^>]+src="([^"]+)"`).FindAllStringSubmatch(page.Body.String(), -1)
+	if len(scripts) == 0 {
+		t.Fatal("entry page has no scripts to bootstrap the workspace")
+	}
+	for _, script := range scripts {
+		asset := apiTest(s, "GET", script[1], "")
+		mediaType, _, err := mime.ParseMediaType(asset.Header().Get("Content-Type"))
+		if asset.Code != http.StatusOK || err != nil || (mediaType != "text/javascript" && mediaType != "application/javascript") || asset.Body.Len() == 0 {
+			t.Fatalf("entry script %s is not served as JavaScript: status %d, content type %q", script[1], asset.Code, asset.Header().Get("Content-Type"))
+		}
+	}
+	for _, name := range []string{"/missing.js", "/web/career.js", "/server.go"} {
+		if asset := apiTest(s, "GET", name, ""); asset.Code != http.StatusNotFound {
+			t.Fatalf("unexpected static file %s: status %d", name, asset.Code)
 		}
 	}
 }

@@ -1,13 +1,14 @@
 'use strict';
 const $ = id => document.getElementById(id);
 const state = {profiles: [], reports: [], settings: {}, selected: '', current: new Map(), reportId: '', view: 'services', generation: 0, chatGeneration: 0, run: null, chat: null, preparing: null, context: null, settingsDirty: false, ipSettings: {}, ipDirty: false, ipEditRevision: 0};
+let careerInitialized = false;
 let session, profileEdit, issueEdit, exportData, exportKind, confirmAction;
 let profileGeneration = 0, profileSaving = false;
 let issueGeneration = 0, issueSaving = false;
 let exportGeneration = 0;
 let researchGeneration = 0, researchRun = null, researchProfile = null, researchSettings = null;
 let templateGeneration = 0, templateRun = null;
-const titles = {services: 'My services', diagnostics: 'Diagnostics', assistant: 'Assistant', settings: 'Settings'};
+const titles = {services: 'My services', diagnostics: 'Diagnostics', assistant: 'Assistant', career: 'Career Radar', settings: 'Settings'};
 function el(tag, text, className) { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; if (className) node.className = className; return node; }
 function action(text, handler, className = 'secondary') { const b = el('button', text, className); b.type = 'button'; b.addEventListener('click', () => perform(handler)); return b; }
 function notice(message, error = false) { $('notice').textContent = message; $('notice').className = error ? 'error' : ''; $('notice').hidden = !message; }
@@ -30,7 +31,10 @@ function date(raw) { return new Date(raw).toLocaleString('en-US', {dateStyle: 'm
 function range(r) { return `${Number(r.lower.toFixed(1))}–${Number(r.upper.toFixed(1))}`; }
 function showView(view) {
   if (!titles[view]) view = 'services';
+  const previous = state.view;
   state.view = view;
+  if (careerInitialized && previous === 'career' && view !== 'career') window.AIviaCareer.leave();
+  if (careerInitialized && view === 'career' && previous !== 'career') perform(window.AIviaCareer.enter);
   for (const key of Object.keys(titles)) $(key + '-view').hidden = key !== view;
   document.querySelectorAll('[data-view]').forEach(b => { b.classList.toggle('active', b.dataset.view === view); b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'); });
   $('breadcrumb').textContent = `Workspace / ${titles[view]}`;
@@ -92,6 +96,7 @@ async function refresh() {
   const [data, ip] = await Promise.all([api('/api/state'), api('/api/ip-settings')]);
   if (state.ipSettings.revision !== undefined && state.ipSettings.revision !== ip.revision) $('intelligence-check').checked = false;
   state.ipSettings = ip; renderIPSummary(); state.profiles = data.profiles || []; state.reports = data.reports || []; state.settings = data.settings;
+  window.AIviaCareer.settingsChanged();
   renderSelectors(); renderServices(); renderDetail(); renderReport();
 }
 function renderServices() {
@@ -621,7 +626,7 @@ async function saveIPSettings() {
 }
 
 function modelIdentityChanged(connectionChanged, preserveDraft = false) {
-  state.settingsDirty = true; $('local-confirmed').checked = false; $('cloud-confirmed').checked = false; resetChat(preserveDraft);
+  state.settingsDirty = true; window.AIviaCareer.settingsChanged(); $('local-confirmed').checked = false; $('cloud-confirmed').checked = false; resetChat(preserveDraft);
   if (connectionChanged) { $('available-models').replaceChildren(); $('model-list').replaceChildren(); }
   $('model-status').textContent = 'Settings changed. Review the connection consent and save before chatting.';
 }
@@ -632,7 +637,7 @@ async function saveSettings(discover = false) {
   try {
     const cli = isCLI({provider: $('model-provider').value});
     state.settings = await api('/api/settings', 'POST', {provider: $('model-provider').value, endpoint: cli ? '' : $('model-endpoint').value.trim(), model: $('model-id').value.trim(), cliPath: cli ? $('cli-path').value.trim() : '', localConfirmed: !cli && $('local-confirmed').checked, cloudConfirmed: cli && $('cloud-confirmed').checked});
-    state.settingsDirty = false; resetChat(); renderSelectors();
+    state.settingsDirty = false; window.AIviaCareer.settingsChanged(); resetChat(); renderSelectors();
     $('model-status').textContent = 'Settings saved.';
     notice('Assistant settings saved. Direct chat is ready after connection consent; report attachments require a preview.');
     if (discover) {
@@ -716,7 +721,7 @@ function bindEvents() {
   $('settings-form').onsubmit = event => { event.preventDefault(); perform(saveSettings); }; $('list-models').onclick = () => perform(listModels);
   $('model-provider').onchange = () => { $('model-endpoint').value = $('model-provider').value === 'ollama' ? 'http://127.0.0.1:11434' : 'http://127.0.0.1:1234/v1'; $('model-id').value = ''; $('cli-path').value = ''; updateModelFields(); modelIdentityChanged(true); };
   $('model-endpoint').oninput = () => modelIdentityChanged(true); $('cli-path').oninput = () => modelIdentityChanged(true); $('detect-cli').onclick = () => perform(detectCLIs); $('model-id').oninput = () => modelIdentityChanged(false);
-  for (const id of ['local-confirmed','cloud-confirmed']) $(id).onchange = () => { state.settingsDirty = true; resetChat(); };
+  for (const id of ['local-confirmed','cloud-confirmed']) $(id).onchange = () => { state.settingsDirty = true; window.AIviaCareer.settingsChanged(); resetChat(); };
   $('ip-provider').onchange = () => ipIdentityChanged(true); $('ip-endpoint').oninput = () => ipIdentityChanged(false); $('ip-api-key').oninput = markIPDirty; $('ip-clear-key').onchange = () => { if ($('ip-clear-key').checked) $('ip-api-key').value = ''; markIPDirty(); };
   $('ip-settings-form').onsubmit = event => { event.preventDefault(); perform(saveIPSettings); };
   $('include-notes').onchange = () => { resetChat(); $('assistant-notes').hidden = !$('include-notes').checked; if ($('include-notes').checked) { const p = profile(); $('assistant-notes').value = [p?.notes, ...(p?.issues || []).filter(i => !i.resolved).map(i => `${i.stage}: ${i.error}\n${i.notes}`)].filter(Boolean).join('\n\n').slice(0, 8192); } };
@@ -732,8 +737,10 @@ function bindEvents() {
   $('research-urls').oninput = () => { cancelResearch(); $('research-summary').textContent = ''; $('research-sources').replaceChildren(); $('research-status').textContent = 'Source URLs changed. Fetch again to update the summary.'; };
 }
 async function init() {
-  bindEvents(); showView(location.hash.slice(1) || 'services'); session = await api('/api/session');
+  bindEvents(); session = await api('/api/session');
   $('transport').textContent = session.transport;
   await refresh(); populateSettings(); populateIPSettings();
+  window.AIviaCareer.init({api, el, settings: () => state.settingsDirty ? null : state.settings}); careerInitialized = true;
+  const initial = location.hash.slice(1) || 'services'; state.view = ''; showView(initial);
 }
 perform(init);
